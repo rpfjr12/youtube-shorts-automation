@@ -2,8 +2,6 @@ import os
 import json
 from pathlib import Path
 import logging
-from google.cloud import secretmanager
-from google.oauth2 import service_account
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
