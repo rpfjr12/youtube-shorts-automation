@@ -1,40 +1,50 @@
-import os  # for file operations
-import googleapiclient.discovery # for interacting with the YouTube API
-import googleapiclient.errors # for handling API errors
-from automation.youtube_auth import authenticate_youtube
+import os
 import logging
-from google.auth.transport.requests import Request
-from dotenv import load_dotenv
 import io
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
+from automation.youtube_auth import authenticate_youtube
+from dotenv import load_dotenv
 
-# Configure logging - don't use basicConfig since main.py handles this
 logger = logging.getLogger(__name__)
-
 load_dotenv()
 
-def get_authenticated_service():
-    """Load YouTube API credentials."""
-    credentials = authenticate_youtube()
-    return googleapiclient.discovery.build("youtube", "v3", credentials=credentials) #
 
-def upload_video(youtube, file_path, title, description, tags, thumbnail_path=None, privacy="public"):
+def get_authenticated_service():
+    """Authenticate and return YouTube API client."""
+    credentials = authenticate_youtube()
+    return build("youtube", "v3", credentials=credentials)
+
+
+def upload_video(
+    youtube,
+    file_path,
+    title,
+    description,
+    tags=None,
+    thumbnail_path=None,
+    privacy="public"
+):
     """
-    Upload a video to YouTube with optional thumbnail.
+    Upload a finance‑facts short to YouTube.
 
     Args:
-        youtube: Authenticated YouTube API service
-        file_path (str): Path to the video file
-        title (str): Title for the video
+        youtube: Authenticated YouTube API client
+        file_path (str): Path to video file
+        title (str): Video title
         description (str): Video description
-        tags (list): List of tags
-        thumbnail_path (str): Optional path to thumbnail image
-        privacy (str): Privacy status ('public', 'private', 'unlisted')
-
-    Returns:
-        str: Video ID of the uploaded video or None if failed
+        tags (list): Tags for SEO
+        thumbnail_path (str): Optional thumbnail path
+        privacy (str): 'public', 'private', or 'unlisted'
     """
+
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Video file '{file_path}' not found.")
+        raise FileNotFoundError(f"Video file not found: {file_path}")
+
+    # Default finance tags
+    if tags is None:
+        tags = ["shorts", "finance", "money", "wealth", "saving"]
 
     body = {
         "snippet": {
@@ -48,59 +58,72 @@ def upload_video(youtube, file_path, title, description, tags, thumbnail_path=No
         }
     }
 
-    media_body = googleapiclient.http.MediaFileUpload(file_path, chunksize=-1, resumable=True)
+    media_body = MediaFileUpload(file_path, chunksize=-1, resumable=True)
+
     try:
-        # Upload the video first
         logger.info(f"Uploading video: {title}")
+
         request = youtube.videos().insert(
             part="snippet,status",
             body=body,
             media_body=media_body
         )
         response = request.execute()
-        video_id = response.get('id')
-        logger.info(f"✅ Video upload successful! Video ID: {video_id}")
 
-        # Upload thumbnail if provided
+        video_id = response.get("id")
+        logger.info(f"✔ Video uploaded successfully — ID: {video_id}")
+
+        # ------------------------------
+        # Upload thumbnail (optional)
+        # ------------------------------
         if thumbnail_path and os.path.exists(thumbnail_path):
             try:
-                logger.info(f"Uploading thumbnail for video ID: {video_id}")
-                # Use a more robust approach for thumbnail upload
-                media = googleapiclient.http.MediaFileUpload(
+                logger.info("Uploading thumbnail...")
+                media = MediaFileUpload(
                     thumbnail_path,
-                    mimetype='image/jpeg',
+                    mimetype="image/jpeg",
                     resumable=True
                 )
                 youtube.thumbnails().set(
                     videoId=video_id,
                     media_body=media
                 ).execute()
-                logger.info(f"✅ Thumbnail upload successful!")
-            except googleapiclient.errors.HttpError as e:
-                logger.error(f"Thumbnail upload failed: {e}")
-                # Try alternative approach if the first one fails
+                logger.info("✔ Thumbnail uploaded successfully")
+
+            except HttpError:
+                logger.warning("Thumbnail upload failed — trying fallback method")
+
                 try:
-                    logger.info("Attempting alternative thumbnail upload method...")
-                    with open(thumbnail_path, 'rb') as image_file:
-                        image_data = image_file.read()
-                        youtube.thumbnails().set(
-                            videoId=video_id,
-                            media_body=googleapiclient.http.MediaIoBaseUpload(
-                                io.BytesIO(image_data),
-                                mimetype='image/jpeg',
-                                resumable=True
-                            )
-                        ).execute()
-                    logger.info(f"✅ Thumbnail upload successful with alternative method!")
-                except Exception as alt_error:
-                    logger.error(f"Alternative thumbnail upload also failed: {alt_error}")
-                    # Continue even if thumbnail upload fails
+                    with open(thumbnail_path, "rb") as f:
+                        image_data = f.read()
+
+                    youtube.thumbnails().set(
+                        videoId=video_id,
+                        media_body=MediaIoBaseUpload(
+                            io.BytesIO(image_data),
+                            mimetype="image/jpeg",
+                            resumable=True
+                        )
+                    ).execute()
+
+                    logger.info("✔ Thumbnail uploaded using fallback method")
+
+                except Exception as e:
+                    logger.error(f"Thumbnail fallback failed: {e}")
 
         return video_id
-    except googleapiclient.errors.HttpError as e:
+
+    except HttpError as e:
         logger.error(f"Video upload failed: {e}")
-        raise
+        return None
+
 
 if __name__ == "__main__":
     youtube = get_authenticated_service()
-    upload_video(youtube, "short_output.mp4", "Test Short", "A test video.", ["shorts", "test"])
+    upload_video(
+        youtube,
+        "short_output.mp4",
+        "Test Finance Short",
+        "A test finance video.",
+        ["shorts", "finance", "money"]
+    )
