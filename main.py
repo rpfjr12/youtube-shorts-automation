@@ -9,9 +9,10 @@ import datetime
 # --- FINANCE FACT GENERATOR ---
 from automation.finance_fact_generator import generate_finance_fact
 
-# --- EXISTING PIPELINE MODULES ---
-from automation.shorts_maker_V import YTShortsCreator_V
-from automation.shorts_maker_I import YTShortsCreator_I
+# --- NEW FFmpeg-BASED CREATOR ---
+from automation.shorts_maker_FFmpeg import YTShortsCreator_FFmpeg
+
+# --- EXISTING PIPELINE MODULES (UNCHANGED) ---
 from automation.youtube_upload import upload_video, get_authenticated_service
 from automation.thumbnail import ThumbnailGenerator
 from automation.content_generator import generate_batch_video_queries, generate_batch_image_prompts
@@ -34,11 +35,6 @@ logging.getLogger().handlers = []
 root_logger = logging.getLogger()
 root_logger.setLevel(LOG_LEVEL)
 
-logging.getLogger('moviepy').setLevel(logging.ERROR)
-logging.getLogger('imageio').setLevel(logging.ERROR)
-logging.getLogger('imageio_ffmpeg').setLevel(logging.ERROR)
-logging.getLogger('PIL').setLevel(logging.ERROR)
-
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
 file_handler = logging.handlers.TimedRotatingFileHandler(
@@ -55,23 +51,18 @@ logger = logging.getLogger(__name__)
 
 # ---------------- CREATOR SELECTION ----------------
 def get_creator_for_day():
+    """
+    Previously alternated between MoviePy video creator and image creator.
+    Now ALWAYS uses FFmpeg creator (safe, stable, CI-friendly).
+    """
     today = datetime.datetime.now()
     day_of_year = today.timetuple().tm_yday
-    use_images = day_of_year % 2 == 0
 
-    if use_images:
-        logger.info(f"Day {day_of_year}: Using image creator")
-        return YTShortsCreator_I()
-    else:
-        logger.info(f"Day {day_of_year}: Using video creator")
-        return YTShortsCreator_V()
+    logger.info(f"Day {day_of_year}: Using FFmpeg creator")
+    return YTShortsCreator_FFmpeg()
 
 # ---------------- FINANCE FACT SHORT GENERATOR ----------------
 def generate_youtube_short(style="photorealistic", max_duration=25, creator_type=None):
-    """
-    Generate a YouTube Short using FINANCE FACTS.
-    """
-
     try:
         output_dir = ensure_output_directory()
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -86,7 +77,7 @@ def generate_youtube_short(style="photorealistic", max_duration=25, creator_type
         logger.info(f"Title: {title}")
         logger.info(f"Fact: {fact['fact']}")
 
-        # --- SCRIPT CARDS (3 sections) ---
+        # --- SCRIPT CARDS ---
         script_cards = [
             {"text": fact["hook"], "duration": 3, "voice_style": "calm"},
             {"text": f"{fact['fact']} {fact['explanation']}", "duration": 5, "voice_style": "calm"},
@@ -105,14 +96,12 @@ def generate_youtube_short(style="photorealistic", max_duration=25, creator_type
         card_texts = [card["text"] for card in script_cards]
         default_query = "abstract finance money savings"
 
-        if isinstance(creator_type, YTShortsCreator_V):
-            batch_query_results = generate_batch_video_queries(
-                card_texts, overall_topic="finance", model="gpt-4o-mini-2024-07-18"
-            )
-        else:
-            batch_query_results = generate_batch_image_prompts(
-                card_texts, overall_topic="finance", model="gpt-4o-mini-2024-07-18"
-            )
+        # FFmpeg creator uses image prompts only
+        batch_query_results = generate_batch_image_prompts(
+            card_texts,
+            overall_topic="finance",
+            model="gpt-4o-mini-2024-07-18"
+        )
 
         section_queries = []
         for i in range(len(script_cards)):
@@ -123,7 +112,7 @@ def generate_youtube_short(style="photorealistic", max_duration=25, creator_type
 
         fallback_query = section_queries[0]
 
-        # --- VIDEO CREATION ---
+        # --- VIDEO CREATION (FFmpeg) ---
         video_path = creator_type.create_youtube_short(
             title=title,
             script_sections=script_cards,
@@ -223,12 +212,5 @@ def main(creator_type=None):
             logger.error(f"Cleanup error: {cleanup_error}")
 
 if __name__ == "__main__":
-    creator_type = None
-    if len(sys.argv) > 1 and sys.argv[1] in ["video", "image"]:
-        if sys.argv[1] == "video":
-            creator_type = YTShortsCreator_V()
-        else:
-            creator_type = YTShortsCreator_I()
-
-    main(creator_type)
+    main()
     cleanup_temp_directories(max_age_hours=24, force_all=True)
