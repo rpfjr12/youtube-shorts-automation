@@ -23,9 +23,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Run finance-facts generator
-        run: |
-          python main.py
+        run: python main.py
 
       - name: Upload video artifact
         uses: actions/upload-artifact@v4
@@ -34,5 +36,4 @@ jobs:
           path: output/*.mp4
 
       - name: Cleanup temp files
-        run: |
-          rm -rf temp || true
+        run: rm -rf temp || true
