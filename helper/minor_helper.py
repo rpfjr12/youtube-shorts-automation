@@ -2,8 +2,6 @@ import re
 import logging
 from collections import Counter
 from pathlib import Path
-import nltk
-from nltk.corpus import stopwords
 import re
 import time
 import os
