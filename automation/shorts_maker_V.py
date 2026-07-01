@@ -3,7 +3,7 @@ import time
 import logging
 from datetime import datetime
 from moviepy.editor import (
-    VideoFileClip, CompositeVideoClip, AudioFileClip, ImageClip
+    VideoFileClip, CompositeVideoClip, AudioFileClip
 )
 from helper.minor_helper import cleanup_temp_directories
 from helper.fetch import fetch_videos_parallel
@@ -42,12 +42,15 @@ class YTShortsCreator_V:
         background_queries=None
     ):
         try:
+            # ------------------------------
+            # Output filename
+            # ------------------------------
             if not output_filename:
                 date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
                 output_filename = os.path.join(self.temp_dir, f"short_{date_str}.mp4")
 
             # ------------------------------
-            # 1. SIMPLE DURATION HANDLING
+            # Duration scaling
             # ------------------------------
             total_duration = sum(s.get("duration", 4) for s in script_sections)
             if total_duration > max_duration:
@@ -56,7 +59,7 @@ class YTShortsCreator_V:
                     s["duration"] = s["duration"] * scale
 
             # ------------------------------
-            # 2. BACKGROUND QUERIES
+            # Background queries
             # ------------------------------
             if not background_queries:
                 background_queries = [background_query] * len(script_sections)
@@ -68,7 +71,7 @@ class YTShortsCreator_V:
             )
 
             # ------------------------------
-            # 3. AUDIO GENERATION
+            # Audio generation
             # ------------------------------
             audio_data = self.audio_helper.process_audio_for_script(
                 script_sections=script_sections,
@@ -76,7 +79,7 @@ class YTShortsCreator_V:
             )
 
             # ------------------------------
-            # 4. TEXT CLIPS (simple fade)
+            # Text clips
             # ------------------------------
             text_clips = self.text_helper.generate_text_clips_parallel(
                 script_sections=script_sections,
@@ -86,12 +89,66 @@ class YTShortsCreator_V:
             )
 
             # ------------------------------
-            # 5. BACKGROUND CLIPS
+            # Background clips
             # ------------------------------
             background_clips = []
             for i, section in enumerate(script_sections):
                 query = background_queries[i]
+
                 if query not in videos_by_query or not videos_by_query[query]:
                     logger.error(f"No background video for section {i}")
                     return None
 
+                bg_path = videos_by_query[query][0]
+                bg_clip = VideoFileClip(bg_path).resize(self.resolution)
+                bg_clip = bg_clip.with_duration(section["duration"])
+                background_clips.append(bg_clip)
+
+            # ------------------------------
+            # Composite each section
+            # ------------------------------
+            section_clips = []
+            for i, section in enumerate(script_sections):
+                duration = section["duration"]
+
+                bg = background_clips[i].with_duration(duration)
+
+                audio_path = audio_data[i]["path"]
+                audio_clip = AudioFileClip(audio_path)
+
+                txt = text_clips[i].with_duration(duration)
+
+                composite = CompositeVideoClip([bg, txt]).with_duration(duration)
+                composite = composite.with_audio(audio_clip)
+
+                section_clips.append(composite)
+
+            # ------------------------------
+            # Final render
+            # ------------------------------
+            render_temp = os.path.join(self.temp_dir, "render")
+            os.makedirs(render_temp, exist_ok=True)
+
+            output_path = render_video(
+                clips=section_clips,
+                output_file=output_filename,
+                fps=self.fps,
+                temp_dir=render_temp,
+                preset="ultrafast",
+                parallel=False,
+                memory_per_worker_gb=1.0,
+                options={"clean_temp": True}
+            )
+
+            return output_path
+
+        except Exception as e:
+            logger.error(f"Error creating video: {e}")
+            cleanup_temp_directories([self.temp_dir])
+            return None
+
+    def cleanup(self):
+        try:
+            cleanup_temp_directories([self.temp_dir])
+        except Exception as e:
+            logger.error(f"Cleanup error: {e}")
