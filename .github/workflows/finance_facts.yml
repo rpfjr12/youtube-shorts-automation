@@ -23,19 +23,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Create .env file
-        run: |
-          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
-          echo "GOOGLE_APPLICATION_CREDENTIALS=google_creds.json" >> .env
-          echo "ENABLE_YOUTUBE_UPLOAD=true" >> .env
-
-      - name: Add Google credentials
-        run: |
-          echo "${{ secrets.GOOGLE_CREDS_JSON }}" > google_creds.json
-
       - name: Run finance-facts generator
         run: |
-          python main.py --run-now --channel default
+          python main.py
+
+      - name: Upload video artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: finance-video
+          path: output/*.mp4
 
       - name: Cleanup temp files
         run: |
